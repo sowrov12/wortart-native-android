@@ -55,7 +55,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-data class WordCard(
+private data class WordCard(
     val german: String,
     val english: String,
     val bengali: String,
@@ -70,7 +70,8 @@ fun WortArtApp(allWords: List<WordCard>) {
     var index by remember { mutableIntStateOf(0) }
     var played by remember { mutableIntStateOf(173) }
     var correct by remember { mutableIntStateOf(79) }
-    var selectedLevel by remember { mutableStateOf("A1") }
+    var selectedLevel by remember { mutableStateOf("All") }
+    var levelMenuExpanded by remember { mutableStateOf(false) }
     var favorites by remember { mutableStateOf(setOf<String>()) }
     var lastAnswer by remember { mutableStateOf<String?>(null) }
     var run by remember { mutableIntStateOf(0) }
@@ -118,8 +119,34 @@ fun WortArtApp(allWords: List<WordCard>) {
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                        Text("▱  All words  ▾", color = Cream, fontSize = 16.sp, modifier = Modifier
-                            .clip(RoundedCornerShape(30.dp)).background(Surface).clickable { selectedLevel = if (selectedLevel == "A1") "A2" else "A1" }.padding(horizontal = 16.dp, vertical = 12.dp))
+                        Box {
+                            Text(
+                                text = "▱  ${if (selectedLevel == "All") "All words" else selectedLevel}  ▾",
+                                color = Cream,
+                                fontSize = 16.sp,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(30.dp))
+                                    .background(Surface)
+                                    .clickable { levelMenuExpanded = true }
+                                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                            )
+                            DropdownMenu(
+                                expanded = levelMenuExpanded,
+                                onDismissRequest = { levelMenuExpanded = false }
+                            ) {
+                                listOf("All", "A1", "A2", "B1").forEach { level ->
+                                    DropdownMenuItem(
+                                        text = { Text(if (level == "All") "All words" else level) },
+                                        onClick = {
+                                            selectedLevel = level
+                                            index = 0
+                                            lastAnswer = null
+                                            levelMenuExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
                         Spacer(Modifier.width(14.dp))
                         Text("${words.size} words", color = Accent, fontWeight = FontWeight.Bold)
                         Spacer(Modifier.weight(1f))
