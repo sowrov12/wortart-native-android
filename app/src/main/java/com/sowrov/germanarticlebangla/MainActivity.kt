@@ -596,28 +596,74 @@ private fun categoryEmoji(name: String): String = when {
 }
 
 @Composable
-private fun CategoryImage(url: String, modifier: Modifier = Modifier, fallback: String) {
-    val bitmap by produceState<Bitmap?>(initialValue = null, key1 = url) {
+private fun CategoryImage(
+    url: String,
+    modifier: Modifier = Modifier,
+    fallback: String
+) {
+    val bitmap by produceState<Bitmap?>(
+        initialValue = null,
+        key1 = url
+    ) {
         value = null
-        val id = Regex("/d/([^/]+)").find(url)?.groupValues?.getOrNull(1)
+
+        val id = Regex("/d/([^/]+)").find(url)
+            ?.groupValues?.getOrNull(1)
+
         val imageUrl = when {
             url.isBlank() -> null
-            id != null && url.contains("drive.google.com") -> "https://drive.google.com/uc?export=download&id=$id"
+            id != null && url.contains("drive.google.com") ->
+                "https://drive.google.com/uc?export=view&id=$id"
             else -> url
         }
-        value = if (imageUrl == null) null else withContext(Dispatchers.IO) {
-            try {
-                URL(imageUrl).openConnection().apply { connectTimeout = 5000; readTimeout = 5000 }
-                    .getInputStream().use { BitmapFactory.decodeStream(it) }
-            } catch (_: Exception) { null }
+
+        value = if (imageUrl == null) {
+            null
+        } else {
+            withContext(Dispatchers.IO) {
+                try {
+                    val connection = URL(imageUrl).openConnection().apply {
+                        connectTimeout = 15000
+                        readTimeout = 15000
+                        setRequestProperty(
+                            "User-Agent",
+                            "Mozilla/5.0"
+                        )
+                    }
+
+                    connection.getInputStream().use { stream ->
+                        BitmapFactory.decodeStream(stream)
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e(
+                        "WortArtImage",
+                        "Image loading failed: $imageUrl",
+                        e
+                    )
+                    null
+                }
+            }
         }
     }
+
     if (bitmap != null) {
-        Image(bitmap!!.asImageBitmap(), contentDescription = null, modifier = modifier, contentScale = ContentScale.Crop)
+        Image(
+            bitmap = bitmap!!.asImageBitmap(),
+            contentDescription = null,
+            modifier = modifier,
+            contentScale = ContentScale.Crop
+        )
     } else if (fallback.isNotBlank()) {
-        Box(modifier, contentAlignment = Alignment.Center) { Text(fallback, fontSize = 27.sp) }
+        Box(
+            modifier,
+            contentAlignment = Alignment.Center
+        ) {
+            Text(fallback, fontSize = 27.sp)
+        }
     } else {
-        Box(modifier.background(Color(0xFF302016)))
+        Box(
+            modifier.background(Color(0xFF302016))
+        )
     }
 }
 
