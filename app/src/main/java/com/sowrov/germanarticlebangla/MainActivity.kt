@@ -12,6 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -302,49 +303,253 @@ private fun ExploreScreen(
     onCategoryClick: (String) -> Unit
 ) {
     var query by remember { mutableStateOf("") }
+    var exploreTab by remember { mutableStateOf("Categories") }
+
     val categories = remember(allWords, categoryInfo) {
-        categoryInfo.ifEmpty { allWords.map { CategoryInfo(it.category, "", "", "Free") }.distinctBy { it.name } }
-    }
-    val results = remember(allWords, query) {
-        allWords.filter { w -> query.isNotBlank() &&
-            (w.german.contains(query, true) || w.english.contains(query, true) || w.bengali.contains(query, true))
-        }.take(80)
-    }
-    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("Explore", color = Cream, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-        OutlinedTextField(
-            value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth(),
-            label = { Text("Search German / English / বাংলা") }, singleLine = true,
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = Cream, unfocusedTextColor = Cream, focusedLabelColor = Accent,
-                unfocusedLabelColor = Muted, focusedBorderColor = Accent, unfocusedBorderColor = Muted,
-                cursorColor = Accent
-            )
-        )
-        Text("Categories", color = Muted)
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2), modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(bottom = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            item { CategoryTile(CategoryInfo("All", "", "", "Free")) { onCategoryClick("All") } }
-            item { CategoryTile(CategoryInfo("Favorites", "", "", "Free")) { onCategoryClick("Favorites") } }
-            items(categories) { category -> CategoryTile(category) { onCategoryClick(category.name) } }
+        categoryInfo.ifEmpty {
+            allWords.map { CategoryInfo(it.category, "", "", "Free") }.distinctBy { it.name }
         }
-        if (query.isNotBlank()) {
-            Text("Search results", color = Accent, fontWeight = FontWeight.Bold)
-            LazyColumn(Modifier.heightIn(max = 180.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(results) { word ->
-                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Surface).padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("${word.article} ${word.german}", color = Cream, fontWeight = FontWeight.Bold)
-                            Text("${word.bengali} • ${word.english}", color = Muted, fontSize = 13.sp)
-                        }
-                        Icon(if (word.german in favorites) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            contentDescription = "Toggle favorite", tint = if (word.german in favorites) Accent else Muted,
-                            modifier = Modifier.clickable { onToggleFavorite(word.german) }.padding(6.dp))
+    }
+    val searchResults = remember(allWords, query) {
+        if (query.isBlank()) emptyList()
+        else allWords.filter { w ->
+            w.german.contains(query, ignoreCase = true) ||
+                w.english.contains(query, ignoreCase = true) ||
+                w.bengali.contains(query, ignoreCase = true)
+        }.distinctBy { it.german }.take(30)
+    }
+
+    Column(
+        Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text("Explore", color = Cream, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+        Text("Pick a deck, learn the patterns, look up any word.", color = Muted, fontSize = 14.sp)
+
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(Surface).padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            listOf("Categories", "Rules", "Search").forEach { item ->
+                Box(
+                    Modifier.weight(1f).clip(RoundedCornerShape(24.dp))
+                        .background(if (exploreTab == item) Accent else Color.Transparent)
+                        .clickable { exploreTab = item }
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(item, color = if (exploreTab == item) Background else Muted, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+
+        when (exploreTab) {
+            "Categories" -> {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    item { CategoryTile(CategoryInfo("All", "", "", "Free")) { onCategoryClick("All") } }
+                    item { CategoryTile(CategoryInfo("Favorites", "", "", "Free")) { onCategoryClick("Favorites") } }
+                    items(categories) { category ->
+                        CategoryTile(category) { onCategoryClick(category.name) }
                     }
+                }
+            }
+
+            "Rules" -> {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(bottom = 12.dp)
+                ) {
+                    item {
+                        RuleGroupCard(
+                            article = "der",
+                            heading = "der — masculine",
+                            summary = "Time words, weather, drinks, directions, car brands and key endings.",
+                            rules = listOf(
+                                RuleInfo("Months", "ALWAYS", "Months are always masculine.", listOf("Januar", "Februar", "März", "April", "Mai", "Juni", "Juli")),
+                                RuleInfo("Seasons", "ALWAYS", "Seasons are always masculine.", listOf("Frühling", "Sommer", "Herbst", "Winter")),
+                                RuleInfo("Drinks", "USUALLY", "Except for beer, alcoholic drinks are masculine.", listOf("Wein", "Rum", "Champagner", "Schnaps", "Liquor", "Cognac"), "Exception: das Bier"),
+                                RuleInfo("Precipitations", "ALWAYS", "Precipitations are always masculine.", listOf("Regen", "Schnee", "Hagel", "Sturm")),
+                                RuleInfo("Weekdays", "ALWAYS", "Weekdays are always masculine.", listOf("Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag")),
+                                RuleInfo("Compass", "ALWAYS", "Points of the compass are masculine.", listOf("Norden", "Nordosten", "Osten", "Südosten", "Süden", "Südwesten")),
+                                RuleInfo("Car brands", "ALWAYS", "Car brands are masculine.", listOf("Mercedes", "Volkswagen", "Ferrari", "Opel", "BMW", "Audi")),
+                                RuleInfo("Endings", "ALWAYS", "Common masculine endings.", listOf("-ismus: Journalismus", "-ner: Rechner", "-or: Mentor")),
+                                RuleInfo("Endings", "USUALLY", "These endings are usually masculine.", listOf("-ig: Honig", "-ich: Pfirsich", "-ling: Schmetterling", "-ist: Polizist", "-ant: Elefant", "-ent: Agent", "-är: Bär", "-eur: Ingenieur"))
+                            )
+                        )
+                    }
+                    item {
+                        RuleGroupCard(
+                            article = "die",
+                            heading = "die — feminine",
+                            summary = "Common feminine endings.",
+                            rules = listOf(
+                                RuleInfo("Endings", "ALWAYS", "These endings are feminine.", listOf("-heit: Gesundheit", "-keit: Süßigkeit", "-schaft: Wissenschaft", "-ung: Bildung", "-tät: Qualität", "-ie: Galaxie", "-ik: Mathematik")),
+                                RuleInfo("Endings", "USUALLY", "These endings are usually feminine.", listOf("-in: Lehrerin", "-e: Stunde", "-ei: Polizei", "-ur: Tastatur"))
+                            )
+                        )
+                    }
+                    item {
+                        RuleGroupCard(
+                            article = "das",
+                            heading = "das — neuter",
+                            summary = "Nouns made from verbs, colors and common endings.",
+                            rules = listOf(
+                                RuleInfo("Categories", "ALWAYS", "Verbs used as nouns and colors are neuter.", listOf("Essen", "Lesen", "Rot", "Blau")),
+                                RuleInfo("Endings", "ALWAYS", "These endings are neuter.", listOf("-chen: Mädchen", "-lein: Büchlein")),
+                                RuleInfo("Endings", "USUALLY", "These endings are usually neuter.", listOf("-ial: Material", "-nis: Erlebnis", "-um: Album", "-ment: Dokument", "-o: Auto", "Ge-: Geschenk"))
+                            )
+                        )
+                    }
+                }
+            }
+
+            else -> {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Search German / English / বাংলা") },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Cream, unfocusedTextColor = Cream,
+                        focusedLabelColor = Accent, unfocusedLabelColor = Muted,
+                        focusedBorderColor = Accent, unfocusedBorderColor = Muted,
+                        cursorColor = Accent
+                    )
+                )
+                if (query.isBlank()) {
+                    Text("Search suggestions", color = Muted, fontWeight = FontWeight.SemiBold)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("der Apfel", "das Haus", "die Gesundheit", "der Beruf").forEach { suggestion ->
+                            val term = suggestion.substringAfter(" ")
+                            val found = allWords.firstOrNull { it.german.equals(term, true) }
+                            Row(
+                                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                                    .background(Surface).clickable {
+                                        query = found?.german ?: term
+                                    }.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("⌕", color = Accent, fontSize = 20.sp)
+                                Spacer(Modifier.width(10.dp))
+                                Column {
+                                    Text(found?.let { "${it.article} ${it.german}" } ?: suggestion, color = Cream, fontWeight = FontWeight.SemiBold)
+                                    Text(found?.let { "${it.bengali} • ${it.english}" } ?: "Tap to search this word", color = Muted, fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(searchResults) { word ->
+                            Row(
+                                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                                    .background(Surface).padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("${word.article} ${word.german}", color = Cream, fontWeight = FontWeight.Bold)
+                                    Text("${word.bengali} • ${word.english}", color = Muted, fontSize = 13.sp)
+                                    Text("${word.level} · ${word.category}", color = Accent, fontSize = 12.sp)
+                                }
+                                Icon(
+                                    if (word.german in favorites) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                    contentDescription = "Toggle favorite",
+                                    tint = if (word.german in favorites) Accent else Muted,
+                                    modifier = Modifier.clickable { onToggleFavorite(word.german) }.padding(6.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private data class RuleInfo(
+    val title: String,
+    val status: String,
+    val explanation: String,
+    val examples: List<String>,
+    val exception: String? = null
+)
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun RuleGroupCard(
+    article: String,
+    heading: String,
+    summary: String,
+    rules: List<RuleInfo>
+) {
+    var expanded by remember { mutableStateOf(true) }
+    val articleColor = when (article) {
+        "der" -> Color(0xFF63B9F2)
+        "die" -> Color(0xFFF27B9B)
+        else -> Color(0xFFFFD84D)
+    }
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(Surface).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            Modifier.fillMaxWidth().clickable { expanded = !expanded },
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(Modifier.size(48.dp).clip(CircleShape).background(Color(0xFF30251D)), contentAlignment = Alignment.Center) {
+                Text(article, color = articleColor, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(heading, color = Cream, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(summary, color = Muted, fontSize = 12.sp)
+            }
+            Text(if (expanded) "⌃" else "⌄", color = Muted, fontSize = 20.sp)
+        }
+        if (expanded) {
+            rules.forEach { rule ->
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+                        .background(Color(0xFF30261F)).padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(rule.title, color = Cream, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        Text(
+                            rule.status,
+                            color = if (rule.status == "ALWAYS") Color(0xFF70D08A) else Accent,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(Color(0xFF211812)).padding(horizontal = 9.dp, vertical = 5.dp)
+                        )
+                    }
+                    Text(rule.explanation, color = Muted, fontSize = 13.sp)
+                    androidx.compose.foundation.layout.FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        rule.examples.forEach { example ->
+                            Text(
+                                if (example.startsWith("-")) example else "$article $example",
+                                color = articleColor,
+                                fontSize = 12.sp,
+                                modifier = Modifier.clip(RoundedCornerShape(20.dp))
+                                    .background(Color(0xFF211812)).padding(horizontal = 10.dp, vertical = 7.dp)
+                            )
+                        }
+                    }
+                    rule.exception?.let { Text(it, color = Cream, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
                 }
             }
         }
