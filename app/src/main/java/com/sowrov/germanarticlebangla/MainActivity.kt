@@ -16,7 +16,7 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.CustomCredential
 import androidx.credentials.exceptions.GetCredentialException
-import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
@@ -887,39 +887,22 @@ private fun PremiumScreen() {
             errorMessage = null
 
             try {
-                val googleOption = GetGoogleIdOption.Builder()
-                    .setServerClientId(
-                        context.getString(
-                            com.sowrov.germanarticlebangla.R.string.default_web_client_id
-                        )
+                val googleOption = GetSignInWithGoogleOption.Builder(
+                    serverClientId = context.getString(
+                        com.sowrov.germanarticlebangla.R.string.default_web_client_id
                     )
-                    .setFilterByAuthorizedAccounts(false)
-                    .setAutoSelectEnabled(false)
-                    .build()
+                ).build()
 
                 val request = GetCredentialRequest.Builder()
                     .addCredentialOption(googleOption)
                     .build()
 
-                Log.i("WortArtGoogleSignIn", "Starting Credential Manager sign-in")
-                Log.i(
-                    "WortArtGoogleSignIn",
-                    "Using Web Client ID: " + context.getString(
-                        com.sowrov.germanarticlebangla.R.string.default_web_client_id
-                    )
-                )
-
                 val result = credentialManager.getCredential(
                     context = activity,
                     request = request
                 )
-                Log.i("WortArtGoogleSignIn", "Credential Manager returned a credential")
 
                 val credential = result.credential
-                Log.i(
-                    "WortArtGoogleSignIn",
-                    "Credential class=${credential.javaClass.name}, type=${(credential as? CustomCredential)?.type ?: "not-custom"}"
-                )
 
                 if (
                     credential is CustomCredential &&
@@ -929,7 +912,6 @@ private fun PremiumScreen() {
                     val googleCredential =
                         GoogleIdTokenCredential.createFrom(credential.data)
 
-                    Log.i("WortArtGoogleSignIn", "Google ID token received; starting Firebase sign-in")
                     val firebaseCredential = GoogleAuthProvider.getCredential(
                         googleCredential.idToken,
                         null
@@ -957,7 +939,6 @@ private fun PremiumScreen() {
                             loading = false
                         }
                         .addOnFailureListener { e ->
-                            Log.e("WortArtGoogleSignIn", "Firebase sign-in failed: ${e.javaClass.name}: ${e.message}", e)
                             loading = false
                             errorMessage =
                                 "Firebase sign-in failed: ${e.localizedMessage ?: "Try again."}"
@@ -967,22 +948,12 @@ private fun PremiumScreen() {
                     errorMessage = "Google sign-in credential was not returned."
                 }
             } catch (e: GetCredentialException) {
-                Log.e(
-                    "WortArtGoogleSignIn",
-                    "Credential Manager failed: class=${e.javaClass.name}, type=${e.type}, message=${e.message}",
-                    e
-                )
                 loading = false
                 errorMessage =
-                    "Google sign-in failed (${e.javaClass.simpleName}, ${e.type}): ${e.localizedMessage ?: "See diagnostic log."}"
+                    e.localizedMessage ?: "Google sign-in failed. Please try again."
             } catch (e: Exception) {
-                Log.e(
-                    "WortArtGoogleSignIn",
-                    "Unexpected sign-in failure: class=${e.javaClass.name}, message=${e.message}",
-                    e
-                )
                 loading = false
-                errorMessage = "${e.javaClass.simpleName}: ${e.localizedMessage ?: "Google sign-in failed."}"
+                errorMessage = e.localizedMessage ?: "Google sign-in failed."
             }
         }
     }
