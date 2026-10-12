@@ -55,7 +55,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private data class WordCard(
+data class WordCard(
     val german: String,
     val english: String,
     val bengali: String,
