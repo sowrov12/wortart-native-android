@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -72,7 +73,16 @@ fun WortArtApp(allWords: List<WordCard>) {
     var correct by remember { mutableIntStateOf(79) }
     var selectedLevel by remember { mutableStateOf("All") }
     var levelMenuExpanded by remember { mutableStateOf(false) }
-    var favorites by remember { mutableStateOf(setOf<String>()) }
+    val context = LocalContext.current
+    val preferences = remember(context) { context.getSharedPreferences("wortart_preferences", android.content.Context.MODE_PRIVATE) }
+    var favorites by remember {
+        mutableStateOf(preferences.getStringSet("favorites", emptySet())?.toSet() ?: emptySet())
+    }
+    fun toggleFavorite(german: String) {
+        val updated = if (german in favorites) favorites - german else favorites + german
+        favorites = updated
+        preferences.edit().putStringSet("favorites", updated.toSet()).apply()
+    }
     var lastAnswer by remember { mutableStateOf<String?>(null) }
     var run by remember { mutableIntStateOf(0) }
     val words = remember(selectedLevel, allWords) {
@@ -168,7 +178,7 @@ fun WortArtApp(allWords: List<WordCard>) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Icon(Icons.Default.VolumeUp, contentDescription = "Audio", tint = Cream)
                             Icon(if (favorites.contains(word.german)) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = "Favorite", tint = if (favorites.contains(word.german)) Accent else Cream,
-                                modifier = Modifier.clickable { favorites = if (favorites.contains(word.german)) favorites - word.german else favorites + word.german })
+                                modifier = Modifier.clickable { toggleFavorite(word.german) })
                         }
                         Spacer(Modifier.height(60.dp))
                         Box(
@@ -214,7 +224,7 @@ fun WortArtApp(allWords: List<WordCard>) {
                         }
                     }
                 }
-                "Explore" -> ExploreScreen(allWords)
+                "Explore" -> ExploreScreen(allWords, favorites, ::toggleFavorite)
                 "Stats" -> SimpleScreen("Your Stats", "Practice progress", listOf("Words played: $played", "Success rate: $correct%", "Current streak: 2 days"))
                 else -> SimpleScreen("WortArt Premium", "Premium activation will connect to Firebase in the next phase", listOf("26 categories in your vocabulary data", "Premium categories are marked in categories.json", "Google Sign-in and secure entitlement are not yet connected"))
             }
@@ -246,13 +256,15 @@ private fun SimpleScreen(title: String, subtitle: String, rows: List<String>) {
 
 
 @Composable
-private fun ExploreScreen(allWords: List<WordCard>) {
+private fun ExploreScreen(allWords: List<WordCard>, favorites: Set<String>, onToggleFavorite: (String) -> Unit) {
     var query by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("All") }
-    val categories = remember(allWords) { listOf("All") + allWords.map { it.category }.filter { it.isNotBlank() }.distinct().sorted() }
+    val categories = remember(allWords) { listOf("All", "Favorites") + allWords.map { it.category }.filter { it.isNotBlank() }.distinct().sorted() }
     val results = remember(allWords, query, selectedCategory) {
         allWords.filter { word ->
-            (selectedCategory == "All" || word.category == selectedCategory) &&
+            (selectedCategory == "All" ||
+                (selectedCategory == "Favorites" && word.german in favorites) ||
+                (selectedCategory != "Favorites" && word.category == selectedCategory)) &&
             (query.isBlank() || word.german.contains(query, ignoreCase = true) || word.english.contains(query, ignoreCase = true) || word.bengali.contains(query, ignoreCase = true))
         }.take(150)
     }
@@ -296,9 +308,19 @@ private fun ExploreScreen(allWords: List<WordCard>) {
                 Column(
                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Surface).padding(14.dp)
                 ) {
-                    Text("${word.article} ${word.german}", color = Cream, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Text("${word.bengali} • ${word.english}", color = Muted, fontSize = 14.sp)
-                    Text("${word.level} · ${word.category}", color = Accent, fontSize = 12.sp)
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("${word.article} ${word.german}", color = Cream, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            Text("${word.bengali} • ${word.english}", color = Muted, fontSize = 14.sp)
+                            Text("${word.level} · ${word.category}", color = Accent, fontSize = 12.sp)
+                        }
+                        Icon(
+                            imageVector = if (word.german in favorites) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            contentDescription = if (word.german in favorites) "Remove from favorites" else "Add to favorites",
+                            tint = if (word.german in favorites) Accent else Muted,
+                            modifier = Modifier.clickable { onToggleFavorite(word.german) }.padding(8.dp)
+                        )
+                    }
                 }
             }
         }
