@@ -1,10 +1,14 @@
 package com.sowrov.germanarticlebangla
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Bundle
 import java.io.File
+import java.util.UUID
 import org.json.JSONArray
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -12,6 +16,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.lazy.LazyColumn
@@ -162,7 +168,7 @@ LaunchedEffect(selectedLevel, selectedCategory, allWords) {
                     ).forEach { (label, icon, route) ->
                         NavigationBarItem(
                             selected = tab == route, onClick = { tab = route },
-                            icon = { Icon(icon, contentDescription = label) }, label = { Text(label) },
+                            icon = { if (route == "Premium") Text("♕", fontSize = 25.sp, color = if (tab == route) Accent else Muted) else Icon(icon, contentDescription = label) }, label = { Text(label) },
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = Accent, selectedTextColor = Accent,
                                 indicatorColor = Surface, unselectedIconColor = Muted, unselectedTextColor = Muted
@@ -429,8 +435,8 @@ private fun ExploreScreen(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    item { CategoryTile(CategoryInfo("All", "", "", "Free")) { onCategoryClick("All") } }
-                    item { CategoryTile(CategoryInfo("Favorites", "", "", "Free")) { onCategoryClick("Favorites") } }
+                    item { SpecialCategoryTile(title = "All", icon = "▦") { onCategoryClick("All") } }
+                    item { SpecialCategoryTile(title = "Favorites", icon = "♡") { onCategoryClick("Favorites") } }
                     items(categories) { category ->
                         CategoryTile(category) { onCategoryClick(category.name) }
                     }
@@ -634,22 +640,46 @@ private fun RuleGroupCard(
 }
 
 @Composable
+private fun SpecialCategoryTile(title: String, icon: String, onClick: () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().height(138.dp).clip(RoundedCornerShape(20.dp))
+            .background(Surface).border(1.dp, Color(0xFF39271B), RoundedCornerShape(20.dp))
+            .clickable { onClick() }.padding(16.dp),
+        verticalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(icon, color = Accent, fontSize = 34.sp, fontWeight = FontWeight.Bold)
+        Text(title, color = Cream, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+    }
+}
+
+@Composable
 private fun CategoryTile(category: CategoryInfo, onClick: () -> Unit) {
     val premium = category.access.equals("Premium", true)
-    Box(
+    // Explore category tiles intentionally have NO background image.
+    // Category background images are reserved for the Practice card only.
+    Column(
         Modifier.fillMaxWidth().height(138.dp).clip(RoundedCornerShape(20.dp))
-            .background(Surface).border(1.dp, if (premium) Accent else Color(0xFF39271B), RoundedCornerShape(20.dp))
+            .background(Surface)
+            .border(1.dp, if (premium) Accent else Color(0xFF39271B), RoundedCornerShape(20.dp))
             .clickable { onClick() }
+            .padding(12.dp),
+        verticalArrangement = Arrangement.SpaceBetween
     ) {
-        CategoryImage(category.backgroundImage, Modifier.fillMaxSize(), "")
-        Box(Modifier.fillMaxSize().background(Color(0xAA120D09)))
-        Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-                CategoryImage(category.iconImage, Modifier.size(46.dp).clip(RoundedCornerShape(12.dp)), categoryEmoji(category.name))
-                if (premium) Icon(Icons.Default.Lock, contentDescription = "Locked Premium category", tint = Accent)
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top
+        ) {
+            CategoryImage(
+                category.iconImage,
+                Modifier.size(46.dp).clip(RoundedCornerShape(12.dp)),
+                categoryEmoji(category.name)
+            )
+            if (premium) {
+                Icon(Icons.Default.Lock, contentDescription = "Locked Premium category", tint = Accent)
             }
-            Text(category.name, color = Cream, fontWeight = FontWeight.Bold, fontSize = 14.sp)
         }
+        Text(category.name, color = Cream, fontWeight = FontWeight.Bold, fontSize = 14.sp)
     }
 }
 
@@ -784,19 +814,127 @@ private fun SimpleScreen(title: String, subtitle: String, rows: List<String>) {
 
 @Composable
 private fun PremiumScreen() {
-    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    val context = LocalContext.current
+    val prefs = remember(context) { context.getSharedPreferences("wortart_preferences", Context.MODE_PRIVATE) }
+    val localUserId = remember {
+        prefs.getString("temporary_premium_user_id", null) ?: UUID.randomUUID().toString().replace("-", "").take(20).also {
+            prefs.edit().putString("temporary_premium_user_id", it).apply()
+        }
+    }
+    var selectedPlan by remember { mutableStateOf("1 Month") }
+    var showGoogleInfo by remember { mutableStateOf(false) }
+    var accountEmail by remember {
+        mutableStateOf(prefs.getString("temporary_premium_email", "") ?: "")
+    }
+
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
         Text("PREMIUM", color = Accent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
         Text("Learn without limits", color = Cream, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold)
-        listOf("▦  Unlock every Premium category", "∞  Unlimited practice", "♡  Unlimited favorites", "▤  Unlimited rule look-ups").forEach {
-            Text(it, color = Cream, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Surface).padding(18.dp))
+
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(26.dp)).background(Surface).padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Sign in to WortArt", color = Cream, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+            Text("Firebase setup-এর আগে Gmail এখানে লিখে রাখো। Google Sign-In চালু হলে Gmail স্বয়ংক্রিয়ভাবে নেওয়া হবে।", color = Muted, fontSize = 13.sp)
+            OutlinedTextField(
+                value = accountEmail,
+                onValueChange = {
+                    accountEmail = it.trim()
+                    prefs.edit().putString("temporary_premium_email", accountEmail).apply()
+                },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("Google/Gmail address") },
+                placeholder = { Text("name@gmail.com") },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Cream,
+                    unfocusedTextColor = Cream,
+                    focusedBorderColor = Accent,
+                    unfocusedBorderColor = Color(0xFF554033),
+                    focusedLabelColor = Accent,
+                    unfocusedLabelColor = Muted,
+                    cursorColor = Accent
+                )
+            )
+            OutlinedButton(
+                onClick = { showGoogleInfo = true },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Cream),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF554033))
+            ) {
+                Text("G", color = Accent, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
+                Spacer(Modifier.width(10.dp))
+                Text("Continue with Google")
+            }
+            HorizontalDivider(color = Color(0xFF3A2B21))
+            Text("TEMPORARY USER ID", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(localUserId, color = Cream, modifier = Modifier.weight(1f), fontSize = 13.sp)
+                TextButton(onClick = {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("WortArt User ID", localUserId))
+                    Toast.makeText(context, "User ID copied", Toast.LENGTH_SHORT).show()
+                }) { Text("Copy", color = Accent) }
+            }
         }
-        Text("1 Week — ৳30", color = Cream, modifier = Modifier.fillMaxWidth().background(Surface, RoundedCornerShape(14.dp)).padding(16.dp))
-        Text("1 Month — ৳100", color = Cream, modifier = Modifier.fillMaxWidth().background(Surface, RoundedCornerShape(14.dp)).padding(16.dp))
-        Text("1 Year — ৳500", color = Cream, modifier = Modifier.fillMaxWidth().background(Surface, RoundedCornerShape(14.dp)).padding(16.dp))
-        Button(onClick = { }, modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Background)) {
-            Text("Get Premium on WhatsApp", fontWeight = FontWeight.Bold)
+
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(26.dp)).background(Surface).padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            listOf("▦" to "Unlock every Premium category", "∞" to "Unlimited practice", "♡" to "Unlimited favorites", "▤" to "Unlimited rule look-ups").forEach { (icon, title) ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(42.dp).clip(CircleShape).background(Color(0xFF3A291D)), contentAlignment = Alignment.Center) {
+                        Text(icon, color = Accent, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(Modifier.width(14.dp))
+                    Text(title, color = Cream, fontSize = 15.sp)
+                }
+            }
         }
-        Text("Manual Premium activation is not connected in this version. Google Sign-In and Firebase entitlement must be implemented separately.", color = Muted, fontSize = 12.sp)
+
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(Triple("1 Week", "৳30", "1 Week"), Triple("1 Month", "৳100", "1 Month"), Triple("1 Year", "৳500", "1 Year")).forEach { (title, price, key) ->
+                val chosen = selectedPlan == key
+                Column(
+                    Modifier.weight(1f).clip(RoundedCornerShape(22.dp))
+                        .background(Surface)
+                        .border(if (chosen) 2.dp else 1.dp, if (chosen) Accent else Color(0xFF39271B), RoundedCornerShape(22.dp))
+                        .clickable { selectedPlan = key }.padding(vertical = 18.dp, horizontal = 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(title, color = Muted, fontSize = 12.sp)
+                    Text(price, color = Cream, fontSize = 23.sp, fontWeight = FontWeight.ExtraBold)
+                }
+            }
+        }
+
+        Button(
+            onClick = {
+                val emailForMessage = accountEmail.ifBlank { "Not provided (Firebase Google Sign-In pending)" }
+                val message = "Hello WortArt Admin, I want to get Premium.\nPlan: $selectedPlan\nPrice: ${when (selectedPlan) { "1 Week" -> "৳30"; "1 Month" -> "৳100"; else -> "৳500" }}\nGoogle/Gmail: $emailForMessage\nWortArt User ID: $localUserId\nPlease activate Premium using either the Gmail address or User ID after verifying payment."
+                val uri = Uri.parse("https://wa.me/8801840648182?text=" + Uri.encode(message))
+                try { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+                catch (_: Exception) { Toast.makeText(context, "WhatsApp or a browser is not available", Toast.LENGTH_LONG).show() }
+            },
+            modifier = Modifier.fillMaxWidth().height(54.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Background),
+            shape = RoundedCornerShape(28.dp)
+        ) {
+            Text("☏  Get Premium on WhatsApp", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        }
+        Text(
+            "WhatsApp message includes your Gmail and User ID. Admin can locate your account using either one after payment verification. Gmail auto-fill and real account IDs require Firebase Google Sign-In setup.",
+            color = Muted, fontSize = 12.sp, lineHeight = 18.sp
+        )
+    }
+
+    if (showGoogleInfo) {
+        AlertDialog(
+            onDismissRequest = { showGoogleInfo = false },
+            containerColor = Surface,
+            title = { Text("Google Sign-In", color = Cream) },
+            text = { Text("The Google button is a design placeholder for now. Firebase and Google Sign-In must be configured before real account login and Firebase User IDs work.", color = Muted) },
+            confirmButton = { TextButton(onClick = { showGoogleInfo = false }) { Text("OK", color = Accent) } }
+        )
     }
 }
