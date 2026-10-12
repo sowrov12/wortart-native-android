@@ -116,12 +116,15 @@ fun WortArtApp(allWords: List<WordCard>, categoryInfo: List<CategoryInfo>) {
                 }
         }
     }
-    var shuffledWords by remember { mutableStateOf(filteredWords.shuffled()) }
-    LaunchedEffect(selectedLevel, selectedCategory, allWords, favorites) {
-        shuffledWords = filteredWords.shuffled()
-        index = 0
-        answerMessage = null
-    }
+    var shuffledWords by remember {
+    mutableStateOf(filteredWords.shuffled())
+}
+
+LaunchedEffect(selectedLevel, selectedCategory, allWords) {
+    shuffledWords = filteredWords.shuffled()
+    index = 0
+    answerMessage = null
+}
     val word = shuffledWords.getOrNull(index)
     val activeCategory = categoryInfo.firstOrNull { it.name == selectedCategory }
 
