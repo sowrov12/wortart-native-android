@@ -16,7 +16,7 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.CustomCredential
 import androidx.credentials.exceptions.GetCredentialException
-import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
@@ -887,11 +887,15 @@ private fun PremiumScreen() {
             errorMessage = null
 
             try {
-                val googleOption = GetSignInWithGoogleOption.Builder(
-                    serverClientId = context.getString(
-                        com.sowrov.germanarticlebangla.R.string.default_web_client_id
+                val googleOption = GetGoogleIdOption.Builder()
+                    .setServerClientId(
+                        context.getString(
+                            com.sowrov.germanarticlebangla.R.string.default_web_client_id
+                        )
                     )
-                ).build()
+                    .setFilterByAuthorizedAccounts(false)
+                    .setAutoSelectEnabled(false)
+                    .build()
 
                 val request = GetCredentialRequest.Builder()
                     .addCredentialOption(googleOption)
