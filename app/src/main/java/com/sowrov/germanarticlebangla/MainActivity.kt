@@ -16,7 +16,7 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.CustomCredential
 import androidx.credentials.exceptions.GetCredentialException
-import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
@@ -881,47 +881,76 @@ private fun PremiumScreen() {
             errorMessage = "Please open the app activity and try again."
             return
         }
+
         scope.launch {
             loading = true
             errorMessage = null
+
             try {
-                val googleIdOption = GetGoogleIdOption.Builder()
-                    .setServerClientId(context.getString(com.sowrov.germanarticlebangla.R.string.default_web_client_id))
-                    .setFilterByAuthorizedAccounts(false)
-                    .build()
+                val googleOption = GetSignInWithGoogleOption.Builder(
+                    serverClientId = context.getString(
+                        com.sowrov.germanarticlebangla.R.string.default_web_client_id
+                    )
+                ).build()
+
                 val request = GetCredentialRequest.Builder()
-                    .addCredentialOption(googleIdOption)
+                    .addCredentialOption(googleOption)
                     .build()
-                val result = credentialManager.getCredential(activity, request)
+
+                val result = credentialManager.getCredential(
+                    context = activity,
+                    request = request
+                )
+
                 val credential = result.credential
-                if (credential is CustomCredential && credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
-                    val googleCredential = GoogleIdTokenCredential.createFrom(credential.data)
-                    val firebaseCredential = GoogleAuthProvider.getCredential(googleCredential.idToken, null)
+
+                if (
+                    credential is CustomCredential &&
+                    credential.type ==
+                    GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+                ) {
+                    val googleCredential =
+                        GoogleIdTokenCredential.createFrom(credential.data)
+
+                    val firebaseCredential = GoogleAuthProvider.getCredential(
+                        googleCredential.idToken,
+                        null
+                    )
+
                     auth.signInWithCredential(firebaseCredential)
                         .addOnSuccessListener { resultAuth ->
                             val user = resultAuth.user
+
                             if (user != null) {
                                 val profile = hashMapOf<String, Any>(
                                     "email" to (user.email ?: ""),
                                     "name" to (user.displayName ?: ""),
                                     "lastLoginAt" to Timestamp.now()
                                 )
-                                firestore.collection("users").document(user.uid)
-                                    .set(profile, com.google.firebase.firestore.SetOptions.merge())
+
+                                firestore.collection("users")
+                                    .document(user.uid)
+                                    .set(
+                                        profile,
+                                        com.google.firebase.firestore.SetOptions.merge()
+                                    )
                             }
+
                             loading = false
                         }
                         .addOnFailureListener { e ->
                             loading = false
-                            errorMessage = "Firebase sign-in failed: ${e.localizedMessage ?: "Try again."}"
+                            errorMessage =
+                                "Firebase sign-in failed: ${e.localizedMessage ?: "Try again."}"
                         }
                 } else {
                     loading = false
-                    errorMessage = "Google account credential was not returned. Try again."
+                    errorMessage = "Google sign-in credential was not returned."
                 }
             } catch (e: GetCredentialException) {
                 loading = false
-                errorMessage = e.localizedMessage ?: "Google sign-in was cancelled or failed."
+                errorMessage =
+                    e.localizedMessage ?: "Google sign-in failed. Please try again."
             } catch (e: Exception) {
                 loading = false
                 errorMessage = e.localizedMessage ?: "Google sign-in failed."
