@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "703831231344-462nniem4v2fcqvsjlbg6pp5c21fqub0.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.sowrov.germanarticlebangla",
+            "certificate_hash": "a6a185e66c6822a7419fb980d1d8199c5c32ec19"
+          }
+        },
+        {
           "client_id": "703831231344-c9an0p2l993bk5csqufmnr9psngmiov1.apps.googleusercontent.com",
           "client_type": 3
         }
