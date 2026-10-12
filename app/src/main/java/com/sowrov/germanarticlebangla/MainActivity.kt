@@ -259,8 +259,7 @@ LaunchedEffect(selectedLevel, selectedCategory, allWords) {
                             Box(Modifier.fillMaxSize().background(Color(0xAA120D09)))
                             Column(
                                 Modifier.fillMaxSize().padding(18.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Row(
                                     Modifier.fillMaxWidth(),
@@ -282,7 +281,7 @@ LaunchedEffect(selectedLevel, selectedCategory, allWords) {
                                         modifier = Modifier.clickable { toggleFavorite(word.german) }
                                     )
                                 }
-                                Spacer(Modifier.height(24.dp))
+                                Spacer(Modifier.weight(1f))
                                 Box(
                                     Modifier.size(100.dp).clip(CircleShape)
                                         .background(Color(0xCC17100B))
@@ -302,6 +301,7 @@ LaunchedEffect(selectedLevel, selectedCategory, allWords) {
                                     answerMessage ?: "Tap the correct article",
                                     color = if (answerMessage == null) Color(0xFFE0D2C3) else Accent
                                 )
+                                Spacer(Modifier.weight(1f))
                             }
                         }
                         Spacer(Modifier.height(14.dp))
@@ -670,49 +670,59 @@ private fun categoryEmoji(name: String): String = when {
 }
 
 private object CategoryBitmapCache {
-    private val memory = object : android.util.LruCache<String, Bitmap>(24 * 1024 * 1024) {
+    // Keep decoded images within a modest memory budget.
+    private val memory = object : android.util.LruCache<String, Bitmap>(12 * 1024 * 1024) {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
     }
 
-    suspend fun load(context: Context, imageUrl: String): Bitmap? = withContext(Dispatchers.IO) {
-        memory.get(imageUrl)?.let { return@withContext it }
+    suspend fun load(context: Context, imageUrl: String): Bitmap? =
+        withContext(Dispatchers.IO) {
+            memory.get(imageUrl)?.let { return@withContext it }
 
-        val cacheFile = File(context.cacheDir, "wortart_image_${imageUrl.hashCode()}.img")
-        if (cacheFile.exists()) {
+            val cacheFile = File(context.cacheDir, "wortart_bytes_${imageUrl.hashCode()}.bin")
             try {
-                val cached = BitmapFactory.decodeFile(cacheFile.absolutePath)
-                if (cached != null) {
-                    memory.put(imageUrl, cached)
-                    return@withContext cached
-                }
-            } catch (_: Exception) {
-                cacheFile.delete()
-            }
-        }
-
-        try {
-            val connection = URL(imageUrl).openConnection().apply {
-                connectTimeout = 15000
-                readTimeout = 15000
-                setRequestProperty("User-Agent", "Mozilla/5.0")
-            }
-            val bitmap = connection.getInputStream().use { BitmapFactory.decodeStream(it) }
-            if (bitmap != null) {
-                try {
-                    cacheFile.outputStream().use { output ->
-                        bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+                val bytes = if (cacheFile.exists() && cacheFile.length() > 0) {
+                    cacheFile.readBytes()
+                } else {
+                    val connection = URL(imageUrl).openConnection().apply {
+                        connectTimeout = 15000
+                        readTimeout = 15000
+                        setRequestProperty("User-Agent", "Mozilla/5.0")
                     }
-                } catch (_: Exception) {
-                    // The in-memory copy still works if disk caching fails.
+                    val downloaded = connection.getInputStream().use { it.readBytes() }
+                    if (downloaded.isNotEmpty()) {
+                        try {
+                            cacheFile.outputStream().use { it.write(downloaded) }
+                        } catch (_: Exception) {
+                            // The downloaded bytes can still be decoded this session.
+                        }
+                    }
+                    downloaded
                 }
-                memory.put(imageUrl, bitmap)
+
+                if (bytes.isEmpty()) return@withContext null
+
+                // Decode a downsampled bitmap instead of retaining huge source images in RAM.
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                val maxDimension = maxOf(bounds.outWidth, bounds.outHeight)
+                val sampleSize = when {
+                    maxDimension > 3000 -> 4
+                    maxDimension > 1800 -> 2
+                    else -> 1
+                }
+                val options = BitmapFactory.Options().apply {
+                    inSampleSize = sampleSize
+                    inPreferredConfig = Bitmap.Config.RGB_565
+                }
+                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+                if (bitmap != null) memory.put(imageUrl, bitmap)
+                bitmap
+            } catch (e: Exception) {
+                android.util.Log.e("WortArtImage", "Image loading failed: $imageUrl", e)
+                null
             }
-            bitmap
-        } catch (e: Exception) {
-            android.util.Log.e("WortArtImage", "Image loading failed: $imageUrl", e)
-            null
         }
-    }
 }
 
 @Composable
