@@ -4,13 +4,26 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import android.app.Activity
+import android.util.Log
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Bundle
 import java.io.File
-import java.util.UUID
 import org.json.JSONArray
 import androidx.activity.ComponentActivity
+import androidx.credentials.CredentialManager
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.CustomCredential
+import androidx.credentials.exceptions.GetCredentialException
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.Timestamp
+import kotlinx.coroutines.launch
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -815,16 +828,105 @@ private fun SimpleScreen(title: String, subtitle: String, rows: List<String>) {
 @Composable
 private fun PremiumScreen() {
     val context = LocalContext.current
-    val prefs = remember(context) { context.getSharedPreferences("wortart_preferences", Context.MODE_PRIVATE) }
-    val localUserId = remember {
-        prefs.getString("temporary_premium_user_id", null) ?: UUID.randomUUID().toString().replace("-", "").take(20).also {
-            prefs.edit().putString("temporary_premium_user_id", it).apply()
-        }
-    }
+    val activity = context as? Activity
+    val auth = remember { FirebaseAuth.getInstance() }
+    val firestore = remember { FirebaseFirestore.getInstance() }
+    val credentialManager = remember { CredentialManager.create(context) }
+    val scope = rememberCoroutineScope()
+
+    var firebaseUser by remember { mutableStateOf(auth.currentUser) }
+    var premiumUntil by remember { mutableStateOf<Timestamp?>(null) }
+    var loading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
     var selectedPlan by remember { mutableStateOf("1 Month") }
-    var showGoogleInfo by remember { mutableStateOf(false) }
-    var accountEmail by remember {
-        mutableStateOf(prefs.getString("temporary_premium_email", "") ?: "")
+
+    DisposableEffect(auth) {
+        val authListener = FirebaseAuth.AuthStateListener { firebaseUser = it.currentUser }
+        auth.addAuthStateListener(authListener)
+        onDispose { auth.removeAuthStateListener(authListener) }
+    }
+
+    DisposableEffect(firebaseUser?.uid) {
+        val user = firebaseUser
+        var registration: ListenerRegistration? = null
+        premiumUntil = null
+        if (user != null) {
+            val ref = firestore.collection("users").document(user.uid)
+            // Create basic profile if missing; merge preserves existing premiumUntil.
+            ref.get().addOnSuccessListener { snapshot ->
+                if (!snapshot.exists()) {
+                    val profile = hashMapOf<String, Any>(
+                        "email" to (user.email ?: ""),
+                        "name" to (user.displayName ?: ""),
+                        "createdAt" to Timestamp.now()
+                    )
+                    ref.set(profile, com.google.firebase.firestore.SetOptions.merge())
+                }
+            }
+            registration = ref.addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e("WortArtPremium", "Could not listen to premium status", error)
+                } else {
+                    premiumUntil = snapshot?.getTimestamp("premiumUntil")
+                }
+            }
+        }
+        onDispose { registration?.remove() }
+    }
+
+    val isPremium = premiumUntil?.toDate()?.after(java.util.Date()) == true
+
+    fun signInWithGoogle() {
+        if (activity == null) {
+            errorMessage = "Please open the app activity and try again."
+            return
+        }
+        scope.launch {
+            loading = true
+            errorMessage = null
+            try {
+                val googleIdOption = GetGoogleIdOption.Builder()
+                    .setServerClientId(context.getString(com.sowrov.germanarticlebangla.R.string.default_web_client_id))
+                    .setFilterByAuthorizedAccounts(false)
+                    .build()
+                val request = GetCredentialRequest.Builder()
+                    .addCredentialOption(googleIdOption)
+                    .build()
+                val result = credentialManager.getCredential(activity, request)
+                val credential = result.credential
+                if (credential is CustomCredential && credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+                    val googleCredential = GoogleIdTokenCredential.createFrom(credential.data)
+                    val firebaseCredential = GoogleAuthProvider.getCredential(googleCredential.idToken, null)
+                    auth.signInWithCredential(firebaseCredential)
+                        .addOnSuccessListener { resultAuth ->
+                            val user = resultAuth.user
+                            if (user != null) {
+                                val profile = hashMapOf<String, Any>(
+                                    "email" to (user.email ?: ""),
+                                    "name" to (user.displayName ?: ""),
+                                    "lastLoginAt" to Timestamp.now()
+                                )
+                                firestore.collection("users").document(user.uid)
+                                    .set(profile, com.google.firebase.firestore.SetOptions.merge())
+                            }
+                            loading = false
+                        }
+                        .addOnFailureListener { e ->
+                            loading = false
+                            errorMessage = "Firebase sign-in failed: ${e.localizedMessage ?: "Try again."}"
+                        }
+                } else {
+                    loading = false
+                    errorMessage = "Google account credential was not returned. Try again."
+                }
+            } catch (e: GetCredentialException) {
+                loading = false
+                errorMessage = e.localizedMessage ?: "Google sign-in was cancelled or failed."
+            } catch (e: Exception) {
+                loading = false
+                errorMessage = e.localizedMessage ?: "Google sign-in failed."
+            }
+        }
     }
 
     Column(
@@ -835,48 +937,36 @@ private fun PremiumScreen() {
         Text("Learn without limits", color = Cream, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold)
 
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(26.dp)).background(Surface).padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Sign in to WortArt", color = Cream, fontSize = 19.sp, fontWeight = FontWeight.Bold)
-            Text("Firebase setup-এর আগে Gmail এখানে লিখে রাখো। Google Sign-In চালু হলে Gmail স্বয়ংক্রিয়ভাবে নেওয়া হবে।", color = Muted, fontSize = 13.sp)
-            OutlinedTextField(
-                value = accountEmail,
-                onValueChange = {
-                    accountEmail = it.trim()
-                    prefs.edit().putString("temporary_premium_email", accountEmail).apply()
-                },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                label = { Text("Google/Gmail address") },
-                placeholder = { Text("name@gmail.com") },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Cream,
-                    unfocusedTextColor = Cream,
-                    focusedBorderColor = Accent,
-                    unfocusedBorderColor = Color(0xFF554033),
-                    focusedLabelColor = Accent,
-                    unfocusedLabelColor = Muted,
-                    cursorColor = Accent
-                )
-            )
-            OutlinedButton(
-                onClick = { showGoogleInfo = true },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Cream),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF554033))
-            ) {
-                Text("G", color = Accent, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
-                Spacer(Modifier.width(10.dp))
-                Text("Continue with Google")
+            if (firebaseUser == null) {
+                Text("Sign in to WortArt", color = Cream, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                Text("Sign in with Google to get your real account ID and sync Premium status.", color = Muted, fontSize = 13.sp)
+                OutlinedButton(
+                    onClick = { signInWithGoogle() },
+                    enabled = !loading,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Cream),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF554033))
+                ) {
+                    Text("G", color = Accent, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
+                    Spacer(Modifier.width(10.dp))
+                    Text(if (loading) "Signing in…" else "Continue with Google")
+                }
+            } else {
+                Text(firebaseUser?.displayName ?: "WortArt user", color = Cream, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                Text(firebaseUser?.email ?: "No email available", color = Muted, fontSize = 13.sp)
+                Text(if (isPremium) "PREMIUM ACTIVE" else "FREE ACCOUNT", color = if (isPremium) Accent else Muted, fontWeight = FontWeight.Bold)
+                val uid = firebaseUser?.uid.orEmpty()
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(uid, color = Cream, modifier = Modifier.weight(1f), fontSize = 12.sp)
+                    TextButton(onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("WortArt Firebase UID", uid))
+                        Toast.makeText(context, "Firebase UID copied", Toast.LENGTH_SHORT).show()
+                    }) { Text("Copy", color = Accent) }
+                }
+                TextButton(onClick = { auth.signOut(); premiumUntil = null }) { Text("Sign out", color = Muted) }
             }
-            HorizontalDivider(color = Color(0xFF3A2B21))
-            Text("TEMPORARY USER ID", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(localUserId, color = Cream, modifier = Modifier.weight(1f), fontSize = 13.sp)
-                TextButton(onClick = {
-                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("WortArt User ID", localUserId))
-                    Toast.makeText(context, "User ID copied", Toast.LENGTH_SHORT).show()
-                }) { Text("Copy", color = Accent) }
-            }
+            errorMessage?.let { Text(it, color = Color(0xFFFF8A80), fontSize = 12.sp) }
         }
 
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(26.dp)).background(Surface).padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -895,8 +985,7 @@ private fun PremiumScreen() {
             listOf(Triple("1 Week", "৳30", "1 Week"), Triple("1 Month", "৳100", "1 Month"), Triple("1 Year", "৳500", "1 Year")).forEach { (title, price, key) ->
                 val chosen = selectedPlan == key
                 Column(
-                    Modifier.weight(1f).clip(RoundedCornerShape(22.dp))
-                        .background(Surface)
+                    Modifier.weight(1f).clip(RoundedCornerShape(22.dp)).background(Surface)
                         .border(if (chosen) 2.dp else 1.dp, if (chosen) Accent else Color(0xFF39271B), RoundedCornerShape(22.dp))
                         .clickable { selectedPlan = key }.padding(vertical = 18.dp, horizontal = 6.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -910,11 +999,16 @@ private fun PremiumScreen() {
 
         Button(
             onClick = {
-                val emailForMessage = accountEmail.ifBlank { "Not provided (Firebase Google Sign-In pending)" }
-                val message = "Hello WortArt Admin, I want to get Premium.\nPlan: $selectedPlan\nPrice: ${when (selectedPlan) { "1 Week" -> "৳30"; "1 Month" -> "৳100"; else -> "৳500" }}\nGoogle/Gmail: $emailForMessage\nWortArt User ID: $localUserId\nPlease activate Premium using either the Gmail address or User ID after verifying payment."
-                val uri = Uri.parse("https://wa.me/8801840648182?text=" + Uri.encode(message))
-                try { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
-                catch (_: Exception) { Toast.makeText(context, "WhatsApp or a browser is not available", Toast.LENGTH_LONG).show() }
+                val user = firebaseUser
+                if (user == null) {
+                    errorMessage = "Please sign in with Google before requesting Premium."
+                } else {
+                    val price = when (selectedPlan) { "1 Week" -> "৳30"; "1 Month" -> "৳100"; else -> "৳500" }
+                    val message = "Hello WortArt Admin, I want to get Premium.\nPlan: $selectedPlan\nPrice: $price\nGoogle/Gmail: ${user.email ?: "Not available"}\nWortArt User ID: ${user.uid}\nPlease activate Premium after verifying payment."
+                    val uri = Uri.parse("https://wa.me/8801840648182?text=" + Uri.encode(message))
+                    try { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+                    catch (_: Exception) { Toast.makeText(context, "WhatsApp or a browser is not available", Toast.LENGTH_LONG).show() }
+                }
             },
             modifier = Modifier.fillMaxWidth().height(54.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Background),
@@ -923,18 +1017,10 @@ private fun PremiumScreen() {
             Text("☏  Get Premium on WhatsApp", fontWeight = FontWeight.Bold, fontSize = 16.sp)
         }
         Text(
-            "WhatsApp message includes your Gmail and User ID. Admin can locate your account using either one after payment verification. Gmail auto-fill and real account IDs require Firebase Google Sign-In setup.",
+            if (firebaseUser == null) "Sign in before requesting Premium. Premium status is read from the users/{uid} Firestore document's premiumUntil field."
+            else if (isPremium) "Your Premium access is active until ${premiumUntil?.toDate()}."
+            else "Your account is connected. After payment verification, Admin can update premiumUntil in users/${firebaseUser?.uid}; this page listens for status changes.",
             color = Muted, fontSize = 12.sp, lineHeight = 18.sp
-        )
-    }
-
-    if (showGoogleInfo) {
-        AlertDialog(
-            onDismissRequest = { showGoogleInfo = false },
-            containerColor = Surface,
-            title = { Text("Google Sign-In", color = Cream) },
-            text = { Text("The Google button is a design placeholder for now. Firebase and Google Sign-In must be configured before real account login and Firebase User IDs work.", color = Muted) },
-            confirmButton = { TextButton(onClick = { showGoogleInfo = false }) { Text("OK", color = Accent) } }
         )
     }
 }
