@@ -1,6 +1,7 @@
 package com.sowrov.germanarticlebangla
 
 import android.os.Bundle
+import org.json.JSONArray
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -13,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.VolumeUp
@@ -36,7 +38,20 @@ private val Muted = Color(0xFFB7A99A)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { WortArtApp() }
+        val wordsJson = assets.open("words.json").bufferedReader().use { it.readText() }
+        val wordsArray = JSONArray(wordsJson)
+        val loadedWords = (0 until wordsArray.length()).map { i ->
+            val item = wordsArray.getJSONObject(i)
+            WordCard(
+                german = item.optString("german"),
+                english = item.optString("englishMeaning"),
+                bengali = item.optString("bengaliMeaning"),
+                article = item.optString("article"),
+                level = item.optString("level"),
+                category = item.optString("category")
+            )
+        }
+        setContent { WortArtApp(loadedWords) }
     }
 }
 
@@ -45,27 +60,24 @@ private data class WordCard(
     val english: String,
     val bengali: String,
     val article: String,
-    val level: String = "A1"
+    val level: String = "A1",
+    val category: String = "Other"
 )
 
 @Composable
-fun WortArtApp() {
+fun WortArtApp(allWords: List<WordCard>) {
     var tab by remember { mutableStateOf("Practice") }
     var index by remember { mutableIntStateOf(0) }
     var played by remember { mutableIntStateOf(173) }
     var correct by remember { mutableIntStateOf(79) }
     var selectedLevel by remember { mutableStateOf("A1") }
-    val words = remember {
-        listOf(
-            WordCard("Musik", "music", "সংগীত", "die"),
-            WordCard("Brot", "bread", "রুটি", "das"),
-            WordCard("Apfel", "apple", "আপেল", "der"),
-            WordCard("Haus", "house", "বাড়ি", "das"),
-            WordCard("Familie", "family", "পরিবার", "die")
-        )
+    var favorites by remember { mutableStateOf(setOf<String>()) }
+    var lastAnswer by remember { mutableStateOf<String?>(null) }
+    var run by remember { mutableIntStateOf(0) }
+    val words = remember(selectedLevel, allWords) {
+        if (selectedLevel == "All") allWords else allWords.filter { it.level == selectedLevel }
     }
-    val word = words[index % words.size]
-
+    val word = words[index.mod(words.size.coerceAtLeast(1))]
     MaterialTheme(
         colorScheme = darkColorScheme(
             background = Background, surface = Surface, primary = Accent,
@@ -109,13 +121,13 @@ fun WortArtApp() {
                         Text("▱  All words  ▾", color = Cream, fontSize = 16.sp, modifier = Modifier
                             .clip(RoundedCornerShape(30.dp)).background(Surface).clickable { selectedLevel = if (selectedLevel == "A1") "A2" else "A1" }.padding(horizontal = 16.dp, vertical = 12.dp))
                         Spacer(Modifier.width(14.dp))
-                        Text(selectedLevel, color = Accent, fontWeight = FontWeight.Bold)
+                        Text("${words.size} words", color = Accent, fontWeight = FontWeight.Bold)
                         Spacer(Modifier.weight(1f))
                         Text("🔥  2", color = Accent, modifier = Modifier.clip(CircleShape).background(Surface).padding(horizontal = 16.dp, vertical = 12.dp))
                     }
                     Spacer(Modifier.height(18.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Metric("RUN", "0", Modifier.weight(1f))
+                        Metric("RUN", run.toString(), Modifier.weight(1f))
                         Metric("PLAYED", played.toString(), Modifier.weight(1f))
                         Metric("SUCCESS", "$correct%", Modifier.weight(1f))
                     }
@@ -128,7 +140,8 @@ fun WortArtApp() {
                     ) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Icon(Icons.Default.VolumeUp, contentDescription = "Audio", tint = Cream)
-                            Icon(Icons.Default.FavoriteBorder, contentDescription = "Favorite", tint = Cream)
+                            Icon(if (favorites.contains(word.german)) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = "Favorite", tint = if (favorites.contains(word.german)) Accent else Cream,
+                                modifier = Modifier.clickable { favorites = if (favorites.contains(word.german)) favorites - word.german else favorites + word.german })
                         }
                         Spacer(Modifier.height(60.dp))
                         Box(
@@ -143,7 +156,7 @@ fun WortArtApp() {
                         Spacer(Modifier.height(8.dp))
                         Text(word.bengali, color = Cream, fontSize = 22.sp)
                         Spacer(Modifier.height(50.dp))
-                        Text("Tap the correct article", color = Muted, fontSize = 13.sp)
+                        Text(lastAnswer ?: "Tap the correct article", color = if (lastAnswer == null) Muted else Accent, fontSize = 13.sp)
                     }
                     Spacer(Modifier.height(18.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
@@ -158,8 +171,11 @@ fun WortArtApp() {
                                     .background(Surface).border(1.dp, Color(0xFF30251D), RoundedCornerShape(24.dp))
                                     .clickable {
                                         played++
-                                        if (article == word.article) correct = ((correct * (played - 1) + 100) / played).coerceIn(0, 100)
-                                        index++
+                                        val isCorrect = article == word.article
+                                        lastAnswer = if (isCorrect) "Richtig! ${word.article} ${word.german}" else "Correct: ${word.article} ${word.german}"
+                                        if (isCorrect) run++ else run = 0
+                                        correct = (((correct * (played - 1)) + if (isCorrect) 100 else 0) / played).coerceIn(0, 100)
+                                        index = (index + 1) % words.size.coerceAtLeast(1)
                                     },
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.Center
@@ -171,9 +187,9 @@ fun WortArtApp() {
                         }
                     }
                 }
-                "Explore" -> SimpleScreen("Explore", "Browse vocabulary by level and category", listOf("All words", "A1 Beginner", "A2 Elementary", "B1 Intermediate", "Food & Drinks", "Family & People", "Home & Housing"))
+                "Explore" -> ExploreScreen(allWords)
                 "Stats" -> SimpleScreen("Your Stats", "Practice progress", listOf("Words played: $played", "Success rate: $correct%", "Current streak: 2 days"))
-                else -> SimpleScreen("WortArt Premium", "Unlock more vocabulary and categories", listOf("Premium categories", "More practice", "Support future updates"))
+                else -> SimpleScreen("WortArt Premium", "Premium activation will connect to Firebase in the next phase", listOf("26 categories in your vocabulary data", "Premium categories are marked in categories.json", "Google Sign-in and secure entitlement are not yet connected"))
             }
         }
     }
@@ -197,6 +213,67 @@ private fun SimpleScreen(title: String, subtitle: String, rows: List<String>) {
         Text(subtitle, color = Muted, fontSize = 15.sp)
         rows.forEach { row ->
             Text(row, color = Cream, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Surface).padding(18.dp))
+        }
+    }
+}
+
+
+@Composable
+private fun ExploreScreen(allWords: List<WordCard>) {
+    var query by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf("All") }
+    val categories = remember(allWords) { listOf("All") + allWords.map { it.category }.filter { it.isNotBlank() }.distinct().sorted() }
+    val results = remember(allWords, query, selectedCategory) {
+        allWords.filter { word ->
+            (selectedCategory == "All" || word.category == selectedCategory) &&
+            (query.isBlank() || word.german.contains(query, ignoreCase = true) || word.english.contains(query, ignoreCase = true) || word.bengali.contains(query, ignoreCase = true))
+        }.take(150)
+    }
+    Column(
+        modifier = Modifier.fillMaxSize().padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Explore", color = Cream, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Search German / English / বাংলা") },
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = Cream, unfocusedTextColor = Cream,
+                focusedLabelColor = Accent, unfocusedLabelColor = Muted,
+                focusedBorderColor = Accent, unfocusedBorderColor = Muted,
+                cursorColor = Accent
+            )
+        )
+        Text("Category", color = Muted, fontSize = 14.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            listOf("All", "Food & Drinks", "Daily Life").forEach { category ->
+                if (category in categories) {
+                    FilterChip(
+                        selected = selectedCategory == category,
+                        onClick = { selectedCategory = category },
+                        label = { Text(category) }
+                    )
+                }
+            }
+        }
+        Text("${results.size} results shown", color = Accent, fontSize = 13.sp)
+        androidx.compose.foundation.lazy.LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            items(results.size) { i ->
+                val word = results[i]
+                Column(
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Surface).padding(14.dp)
+                ) {
+                    Text("${word.article} ${word.german}", color = Cream, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text("${word.bengali} • ${word.english}", color = Muted, fontSize = 14.sp)
+                    Text("${word.level} · ${word.category}", color = Accent, fontSize = 12.sp)
+                }
+            }
         }
     }
 }
