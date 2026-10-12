@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Bundle
+import java.io.File
 import org.json.JSONArray
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -85,7 +86,8 @@ fun WortArtApp(allWords: List<WordCard>, categoryInfo: List<CategoryInfo>) {
     var selectedCategory by remember { mutableStateOf("All") }
     var selectedLevel by remember { mutableStateOf("All") }
     var levelMenu by remember { mutableStateOf(false) }
-    var categoryMenu by remember { mutableStateOf(false) }
+    var showPracticeMenu by remember { mutableStateOf(false) }
+    var exploreCategoriesRequested by remember { mutableStateOf(false) }
     var showPremiumDialog by remember { mutableStateOf(false) }
     var premiumCategory by remember { mutableStateOf("") }
     var index by remember { mutableIntStateOf(0) }
@@ -126,7 +128,9 @@ LaunchedEffect(selectedLevel, selectedCategory, allWords) {
     answerMessage = null
 }
     val word = shuffledWords.getOrNull(index)
-    val activeCategory = categoryInfo.firstOrNull { it.name == selectedCategory }
+    val activeCategory = categoryInfo.firstOrNull { category ->
+        category.name.equals(word?.category, ignoreCase = true)
+    } ?: categoryInfo.firstOrNull { it.name.equals(selectedCategory, ignoreCase = true) }
 
     fun selectCategory(name: String) {
         val info = categoryInfo.firstOrNull { it.name == name }
@@ -138,6 +142,7 @@ LaunchedEffect(selectedLevel, selectedCategory, allWords) {
             index = 0
             answerMessage = null
             tab = "Practice"
+            exploreCategoriesRequested = false
         }
     }
 
@@ -172,28 +177,61 @@ LaunchedEffect(selectedLevel, selectedCategory, allWords) {
                     Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp, vertical = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "▦ ${categoryLabel(selectedCategory)}",
+                            color = Cream,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(24.dp))
+                                .background(Surface)
+                                .clickable {
+                                    tab = "Explore"
+                                    exploreCategoriesRequested = true
+                                }
+                                .padding(horizontal = 14.dp, vertical = 12.dp)
+                        )
+
                         Box {
-                            Text("▱ ${if (selectedLevel == "All") "All levels" else selectedLevel} ▾",
-                                color = Cream, modifier = Modifier.clip(RoundedCornerShape(24.dp)).background(Surface)
-                                    .clickable { levelMenu = true }.padding(12.dp))
-                            DropdownMenu(expanded = levelMenu, onDismissRequest = { levelMenu = false }) {
+                            Text(
+                                "⋮",
+                                color = Cream,
+                                fontSize = 28.sp,
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .clickable { showPracticeMenu = true }
+                                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                            )
+                            DropdownMenu(
+                                expanded = showPracticeMenu,
+                                onDismissRequest = { showPracticeMenu = false }
+                            ) {
                                 listOf("All", "A1", "A2", "B1").forEach { level ->
-                                    DropdownMenuItem(text = { Text(if (level == "All") "All levels" else level) },
-                                        onClick = { selectedLevel = level; levelMenu = false })
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                if (level == "All") "All levels" else
+                                                    if (selectedLevel == level) "✓ $level" else level
+                                            )
+                                        },
+                                        onClick = {
+                                            selectedLevel = level
+                                            showPracticeMenu = false
+                                        }
+                                    )
                                 }
-                            }
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        Box {
-                            Text("▦ ${categoryLabel(selectedCategory)} ▾", color = Cream,
-                                modifier = Modifier.clip(RoundedCornerShape(24.dp)).background(Surface)
-                                    .clickable { categoryMenu = true }.padding(12.dp))
-                            DropdownMenu(expanded = categoryMenu, onDismissRequest = { categoryMenu = false }) {
-                                (listOf("All", "Favorites") + categoryNames).distinct().forEach { name ->
-                                    DropdownMenuItem(text = { Text(categoryLabel(name)) },
-                                        onClick = { categoryMenu = false; selectCategory(name) })
-                                }
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = { Text("Explore categories") },
+                                    onClick = {
+                                        showPracticeMenu = false
+                                        tab = "Explore"
+                                        exploreCategoriesRequested = true
+                                    }
+                                )
                             }
                         }
                     }
@@ -209,30 +247,62 @@ LaunchedEffect(selectedLevel, selectedCategory, allWords) {
                             Text("No words found for this selection.", color = Muted)
                         }
                     } else {
-                        Column(
+                        Box(
                             Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(28.dp))
-                                .background(Color(0xFF302016)).border(1.dp, Color(0xFF39271B), RoundedCornerShape(28.dp)).padding(18.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
+                                .border(1.dp, Color(0xFF39271B), RoundedCornerShape(28.dp))
                         ) {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Icon(Icons.Default.VolumeUp, contentDescription = "Audio", tint = Cream)
-                                Icon(if (word.german in favorites) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                    contentDescription = "Favorite", tint = if (word.german in favorites) Accent else Cream,
-                                    modifier = Modifier.clickable { toggleFavorite(word.german) })
+                            CategoryImage(
+                                activeCategory?.backgroundImage.orEmpty(),
+                                Modifier.fillMaxSize(),
+                                ""
+                            )
+                            Box(Modifier.fillMaxSize().background(Color(0xAA120D09)))
+                            Column(
+                                Modifier.fillMaxSize().padding(18.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.VolumeUp, contentDescription = "Audio", tint = Cream)
+                                    Box(
+                                        Modifier.clip(RoundedCornerShape(20.dp))
+                                            .background(Color(0xAA211812))
+                                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                                    ) {
+                                        Text(word.level, color = Cream, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    Icon(
+                                        if (word.german in favorites) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                        contentDescription = "Favorite",
+                                        tint = if (word.german in favorites) Accent else Cream,
+                                        modifier = Modifier.clickable { toggleFavorite(word.german) }
+                                    )
+                                }
+                                Spacer(Modifier.height(24.dp))
+                                Box(
+                                    Modifier.size(100.dp).clip(CircleShape)
+                                        .background(Color(0xCC17100B))
+                                        .border(3.dp, Accent, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CategoryImage(activeCategory?.iconImage.orEmpty(), Modifier.size(78.dp), categoryEmoji(word.category))
+                                }
+                                Spacer(Modifier.height(22.dp))
+                                Text(word.german, color = Cream, fontSize = 36.sp, fontWeight = FontWeight.ExtraBold)
+                                Spacer(Modifier.height(10.dp))
+                                Text(word.english, color = Color(0xFFE0D2C3), fontSize = 18.sp)
+                                Spacer(Modifier.height(6.dp))
+                                Text(word.bengali, color = Cream, fontSize = 21.sp)
+                                Spacer(Modifier.height(24.dp))
+                                Text(
+                                    answerMessage ?: "Tap the correct article",
+                                    color = if (answerMessage == null) Color(0xFFE0D2C3) else Accent
+                                )
                             }
-                            Spacer(Modifier.height(20.dp))
-                            Box(Modifier.size(100.dp).clip(CircleShape).background(Color(0xFF17100B)).border(3.dp, Accent, CircleShape),
-                                contentAlignment = Alignment.Center) {
-                                CategoryImage(activeCategory?.iconImage.orEmpty(), Modifier.size(78.dp), "📚")
-                            }
-                            Spacer(Modifier.height(20.dp))
-                            Text(word.german, color = Cream, fontSize = 36.sp, fontWeight = FontWeight.ExtraBold)
-                            Spacer(Modifier.height(10.dp))
-                            Text(word.english, color = Muted, fontSize = 18.sp)
-                            Spacer(Modifier.height(6.dp))
-                            Text(word.bengali, color = Cream, fontSize = 21.sp)
-                            Spacer(Modifier.height(24.dp))
-                            Text(answerMessage ?: "Tap the correct article", color = if (answerMessage == null) Muted else Accent)
                         }
                         Spacer(Modifier.height(14.dp))
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -265,7 +335,7 @@ LaunchedEffect(selectedLevel, selectedCategory, allWords) {
                         }
                     }
                 }
-                "Explore" -> ExploreScreen(allWords, favorites, categoryInfo, ::toggleFavorite, ::selectCategory)
+                "Explore" -> ExploreScreen(allWords, favorites, categoryInfo, ::toggleFavorite, ::selectCategory, exploreCategoriesRequested)
                 "Stats" -> SimpleScreen("Your Stats", "Practice progress",
                     listOf("Words played: $played", "Success rate: ${if (played == 0) 0 else correctCount * 100 / played}%", "Current run: $run"))
                 else -> PremiumScreen()
@@ -303,10 +373,14 @@ private fun ExploreScreen(
     favorites: Set<String>,
     categoryInfo: List<CategoryInfo>,
     onToggleFavorite: (String) -> Unit,
-    onCategoryClick: (String) -> Unit
+    onCategoryClick: (String) -> Unit,
+    openCategoriesRequest: Boolean
 ) {
     var query by remember { mutableStateOf("") }
     var exploreTab by remember { mutableStateOf("Categories") }
+    LaunchedEffect(openCategoriesRequest) {
+        if (openCategoriesRequest) exploreTab = "Categories"
+    }
 
     val categories = remember(allWords, categoryInfo) {
         categoryInfo.ifEmpty {
@@ -595,54 +669,70 @@ private fun categoryEmoji(name: String): String = when {
     else -> "📖"
 }
 
+private object CategoryBitmapCache {
+    private val memory = object : android.util.LruCache<String, Bitmap>(24 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
+    }
+
+    suspend fun load(context: Context, imageUrl: String): Bitmap? = withContext(Dispatchers.IO) {
+        memory.get(imageUrl)?.let { return@withContext it }
+
+        val cacheFile = File(context.cacheDir, "wortart_image_${imageUrl.hashCode()}.img")
+        if (cacheFile.exists()) {
+            try {
+                val cached = BitmapFactory.decodeFile(cacheFile.absolutePath)
+                if (cached != null) {
+                    memory.put(imageUrl, cached)
+                    return@withContext cached
+                }
+            } catch (_: Exception) {
+                cacheFile.delete()
+            }
+        }
+
+        try {
+            val connection = URL(imageUrl).openConnection().apply {
+                connectTimeout = 15000
+                readTimeout = 15000
+                setRequestProperty("User-Agent", "Mozilla/5.0")
+            }
+            val bitmap = connection.getInputStream().use { BitmapFactory.decodeStream(it) }
+            if (bitmap != null) {
+                try {
+                    cacheFile.outputStream().use { output ->
+                        bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+                    }
+                } catch (_: Exception) {
+                    // The in-memory copy still works if disk caching fails.
+                }
+                memory.put(imageUrl, bitmap)
+            }
+            bitmap
+        } catch (e: Exception) {
+            android.util.Log.e("WortArtImage", "Image loading failed: $imageUrl", e)
+            null
+        }
+    }
+}
+
 @Composable
 private fun CategoryImage(
     url: String,
     modifier: Modifier = Modifier,
     fallback: String
 ) {
-    val bitmap by produceState<Bitmap?>(
-        initialValue = null,
-        key1 = url
-    ) {
-        value = null
-
-        val id = Regex("/d/([^/]+)").find(url)
-            ?.groupValues?.getOrNull(1)
-
-        val imageUrl = when {
-            url.isBlank() -> null
-            id != null && url.contains("drive.google.com") ->
-                "https://drive.google.com/uc?export=view&id=$id"
-            else -> url
-        }
-
-        value = if (imageUrl == null) {
-            null
+    val context = LocalContext.current
+    val bitmap by produceState<Bitmap?>(initialValue = null, key1 = url) {
+        if (url.isBlank()) {
+            value = null
         } else {
-            withContext(Dispatchers.IO) {
-                try {
-                    val connection = URL(imageUrl).openConnection().apply {
-                        connectTimeout = 15000
-                        readTimeout = 15000
-                        setRequestProperty(
-                            "User-Agent",
-                            "Mozilla/5.0"
-                        )
-                    }
-
-                    connection.getInputStream().use { stream ->
-                        BitmapFactory.decodeStream(stream)
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.e(
-                        "WortArtImage",
-                        "Image loading failed: $imageUrl",
-                        e
-                    )
-                    null
-                }
+            val id = Regex("/d/([^/]+)").find(url)?.groupValues?.getOrNull(1)
+            val imageUrl = if (id != null && url.contains("drive.google.com")) {
+                "https://drive.google.com/uc?export=download&id=$id"
+            } else {
+                url
             }
+            value = CategoryBitmapCache.load(context.applicationContext, imageUrl)
         }
     }
 
@@ -654,16 +744,11 @@ private fun CategoryImage(
             contentScale = ContentScale.Crop
         )
     } else if (fallback.isNotBlank()) {
-        Box(
-            modifier,
-            contentAlignment = Alignment.Center
-        ) {
+        Box(modifier, contentAlignment = Alignment.Center) {
             Text(fallback, fontSize = 27.sp)
         }
     } else {
-        Box(
-            modifier.background(Color(0xFF302016))
-        )
+        Box(modifier.background(Color(0xFF302016)))
     }
 }
 
